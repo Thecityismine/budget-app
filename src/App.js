@@ -2773,3 +2773,5 @@ const s = {
   input: { width: '100%', padding: '0.75rem', background: '#0a0a0a', border: '1px solid #2d2d2d', borderRadius: '6px', color: '#e0e0e0', fontSize: '1rem' },
   editInput: { width: '100%', padding: '0.5rem', background: '#0a0a0a', border: '1px solid #4ade80', borderRadius: '4px', color: '#e0e0e0', fontSize: '0.9rem' }
 };
+
+export default App;

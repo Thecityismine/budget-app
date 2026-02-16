@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="220" fill="#0B0B0D"></rect>
+
+  <!-- Subtle vignette -->
+  <radialGradient id="v" cx="50%" cy="40%" r="70%">
+    <stop offset="0%" stop-color="#17171B" stop-opacity="0.65"></stop>
+    <stop offset="100%" stop-color="#000000" stop-opacity="0.0"></stop>
+  </radialGradient>
+  <rect width="1024" height="1024" rx="220" fill="url(#v)"></rect>
+
+  <!-- Green gradient -->
+  <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#B9FFCA"></stop>
+    <stop offset="35%" stop-color="#53E37D"></stop>
+    <stop offset="70%" stop-color="#18B85A"></stop>
+    <stop offset="100%" stop-color="#9CF7B6"></stop>
+  </linearGradient>
+
+  <!-- Monogram B (stroke style for clean, premium look) -->
+  <path d="M 360 270
+       L 360 760
+       M 360 270
+       L 560 270
+       Q 690 270 690 395
+       Q 690 500 585 520
+       Q 710 540 710 660
+       Q 710 760 570 760
+       L 360 760" fill="none" stroke="url(#green)" stroke-width="78" stroke-linecap="round" stroke-linejoin="round" opacity="0.98"></path>
+
+  <!-- Inner counter hints (cutouts) -->
+  <g opacity="0.92" fill="#0B0B0D">
+    <!-- top bowl -->
+    <path d="M 440 350
+             L 560 350
+             Q 610 350 610 400
+             Q 610 450 560 450
+             L 440 450 Z"></path>
+    <!-- bottom bowl -->
+    <path d="M 440 585
+             L 570 585
+             Q 630 585 630 650
+             Q 630 710 570 710
+             L 440 710 Z"></path>
+  </g>
+
+  <!-- Small highlight -->
+  <path d="M 210 292 Q 512 210 814 292" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="10" stroke-linecap="round"></path>
+</svg>

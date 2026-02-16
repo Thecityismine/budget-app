@@ -19,6 +19,8 @@ Your Supabase database is ready at: `https://wgjbslvpvgymdmlucpyh.supabase.co`
 
 The SQL script in `supabase-setup.sql` has created all tables and loaded your initial data.
 
+To sync Monthly page checkboxes across devices, run `supabase-monthly-checks.sql` once in the Supabase SQL Editor.
+
 ### 2. Local Development
 
 ```bash

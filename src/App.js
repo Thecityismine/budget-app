@@ -7,6 +7,8 @@ const supabase = createClient(
 );
 
 const fmt = (n) => `$${Math.round(n || 0).toLocaleString()}`;
+const MONTHLY_CHECKS_TABLE = 'monthly_bill_checks';
+const MONTHLY_CHECKS_STORAGE_KEY = 'monthlyBillChecks';
 
 export default function MedinaBudget() {
   const [page, setPage] = useState('dashboard');
@@ -391,45 +393,160 @@ function Dashboard({ data }) {
 function Monthly({ data, reload }) {
   const [date, setDate] = useState(new Date());
   const [periods, setPeriods] = useState([]);
-  // Store checks by month+period key: { "2026-1-1": { billId: true }, "2026-1-2": { billId: true } }
   const [paidBillsByPeriod, setPaidBillsByPeriod] = useState({});
+  const [useLocalChecksFallback, setUseLocalChecksFallback] = useState(false);
 
-  useEffect(() => { 
-    loadMonth(); 
-    // Load saved checkboxes from localStorage
-    const saved = localStorage.getItem('monthlyBillChecks');
-    if (saved) {
-      try {
-        setPaidBillsByPeriod(JSON.parse(saved));
-      } catch (e) {
-        console.error('Error loading saved checks:', e);
-      }
-    }
+  useEffect(() => {
+    loadMonth();
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    loadChecks(year, month);
   }, [date, data]);
 
-  // Get the current period key (e.g., "2026-1-1" for Jan 2026, period 1)
+  useEffect(() => {
+    const syncChecks = () => {
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      loadChecks(year, month);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncChecks();
+      }
+    };
+
+    const intervalId = setInterval(syncChecks, 10000);
+    window.addEventListener('focus', syncChecks);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('focus', syncChecks);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [date, useLocalChecksFallback]);
+
   const getPeriodKey = (year, month, period) => `${year}-${month}-${period}`;
 
-  // Get checks for a specific period
+  const saveChecksToLocalStorage = (checks) => {
+    localStorage.setItem(MONTHLY_CHECKS_STORAGE_KEY, JSON.stringify(checks));
+  };
+
+  const loadChecksFromLocalStorage = () => {
+    const saved = localStorage.getItem(MONTHLY_CHECKS_STORAGE_KEY);
+    if (!saved) {
+      setPaidBillsByPeriod({});
+      return;
+    }
+
+    try {
+      setPaidBillsByPeriod(JSON.parse(saved));
+    } catch (error) {
+      console.error('Error loading saved checks from local storage:', error);
+      setPaidBillsByPeriod({});
+    }
+  };
+
+  const mergeChecksIntoState = (year, month, rows) => {
+    const periodOneKey = getPeriodKey(year, month, 1);
+    const periodTwoKey = getPeriodKey(year, month, 2);
+
+    setPaidBillsByPeriod(prevChecks => {
+      const nextChecks = { ...prevChecks };
+      delete nextChecks[periodOneKey];
+      delete nextChecks[periodTwoKey];
+
+      (rows || []).forEach(row => {
+        const key = getPeriodKey(year, month, row.period);
+        nextChecks[key] = nextChecks[key] || {};
+        nextChecks[key][row.bill_key] = true;
+      });
+
+      saveChecksToLocalStorage(nextChecks);
+      return nextChecks;
+    });
+  };
+
+  const loadChecks = async (year, month) => {
+    try {
+      const { data: cloudChecks, error } = await supabase
+        .from(MONTHLY_CHECKS_TABLE)
+        .select('period, bill_key')
+        .eq('year', year)
+        .eq('month', month);
+
+      if (error) throw error;
+
+      setUseLocalChecksFallback(false);
+      mergeChecksIntoState(year, month, cloudChecks);
+    } catch (error) {
+      console.error('Error loading monthly checks from Supabase, using local storage fallback:', error);
+      setUseLocalChecksFallback(true);
+      loadChecksFromLocalStorage();
+    }
+  };
+
   const getChecksForPeriod = (year, month, period) => {
     const key = getPeriodKey(year, month, period);
     return paidBillsByPeriod[key] || {};
   };
 
-  // Toggle a bill's paid status for a specific period
-  const togglePaid = (billId, year, month, period) => {
-    const key = getPeriodKey(year, month, period);
-    const periodChecks = paidBillsByPeriod[key] || {};
-    const newPeriodChecks = { ...periodChecks, [billId]: !periodChecks[billId] };
-    
-    const newAllChecks = {
-      ...paidBillsByPeriod,
-      [key]: newPeriodChecks
-    };
-    
-    setPaidBillsByPeriod(newAllChecks);
-    // Save to localStorage
-    localStorage.setItem('monthlyBillChecks', JSON.stringify(newAllChecks));
+  const updateLocalCheckState = (billId, year, month, period, isPaid) => {
+    setPaidBillsByPeriod(prevChecks => {
+      const key = getPeriodKey(year, month, period);
+      const periodChecks = { ...(prevChecks[key] || {}) };
+
+      if (isPaid) {
+        periodChecks[billId] = true;
+      } else {
+        delete periodChecks[billId];
+      }
+
+      const nextChecks = { ...prevChecks };
+      if (Object.keys(periodChecks).length === 0) {
+        delete nextChecks[key];
+      } else {
+        nextChecks[key] = periodChecks;
+      }
+
+      saveChecksToLocalStorage(nextChecks);
+      return nextChecks;
+    });
+  };
+
+  const togglePaid = async (billId, year, month, period, currentStatus) => {
+    const nextStatus = !currentStatus;
+    updateLocalCheckState(billId, year, month, period, nextStatus);
+
+    try {
+      if (nextStatus) {
+        const { error } = await supabase
+          .from(MONTHLY_CHECKS_TABLE)
+          .upsert(
+            {
+              year,
+              month,
+              period,
+              bill_key: billId
+            },
+            { onConflict: 'year,month,period,bill_key' }
+          );
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from(MONTHLY_CHECKS_TABLE)
+          .delete()
+          .eq('year', year)
+          .eq('month', month)
+          .eq('period', period)
+          .eq('bill_key', billId);
+        if (error) throw error;
+      }
+    } catch (error) {
+      console.error('Error saving monthly checks to Supabase, switching to local storage fallback:', error);
+      setUseLocalChecksFallback(true);
+    }
   };
 
   const getPayPeriods = (y, m) => {
@@ -686,7 +803,7 @@ function Monthly({ data, reload }) {
                         <input 
                           type="checkbox" 
                           checked={periodChecks[b.id] || false}
-                          onChange={() => togglePaid(b.id, p.year, p.month, p.p)}
+                          onChange={() => togglePaid(b.id, p.year, p.month, p.p, periodChecks[b.id] || false)}
                           style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                         />
                         <span style={{ fontSize: '0.9rem' }}>{b.name}</span>
@@ -717,7 +834,7 @@ function Monthly({ data, reload }) {
                         <input 
                           type="checkbox" 
                           checked={periodChecks[b.id] || false}
-                          onChange={() => togglePaid(b.id, p.year, p.month, p.p)}
+                          onChange={() => togglePaid(b.id, p.year, p.month, p.p, periodChecks[b.id] || false)}
                           style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                         />
                         <span style={{ fontSize: '0.9rem' }}>{b.name}</span>
@@ -748,7 +865,7 @@ function Monthly({ data, reload }) {
                         <input 
                           type="checkbox" 
                           checked={periodChecks[b.id] || false}
-                          onChange={() => togglePaid(b.id, p.year, p.month, p.p)}
+                          onChange={() => togglePaid(b.id, p.year, p.month, p.p, periodChecks[b.id] || false)}
                           style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                         />
                         <span style={{ fontSize: '0.9rem' }}>{b.name}</span>
@@ -779,7 +896,7 @@ function Monthly({ data, reload }) {
                         <input 
                           type="checkbox" 
                           checked={periodChecks[b.id] || false}
-                          onChange={() => togglePaid(b.id, p.year, p.month, p.p)}
+                          onChange={() => togglePaid(b.id, p.year, p.month, p.p, periodChecks[b.id] || false)}
                           style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                         />
                         <span style={{ fontSize: '0.9rem' }}>{b.name}</span>
@@ -810,7 +927,7 @@ function Monthly({ data, reload }) {
                         <input 
                           type="checkbox" 
                           checked={periodChecks[b.id] || false}
-                          onChange={() => togglePaid(b.id, p.year, p.month, p.p)}
+                          onChange={() => togglePaid(b.id, p.year, p.month, p.p, periodChecks[b.id] || false)}
                           style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                         />
                         <span style={{ fontSize: '0.9rem' }}>{b.name}</span>
